@@ -10,7 +10,5 @@ SNMP agent north plugin converts the collected data stream to SNMP notifications
 
 1) Copy the python/fledge/plugins/north/snmp directory to /usr/local/fledge/python/fledge/python/plugins/north/
 
-2) pip3 install -Ir python/requirements-snmp.txt
-
 ## Testing
 
