@@ -13,23 +13,20 @@ snmptrap -v <snmp_version> -e <engine_id> -u <security_username> -a <authenticat
 # See: http://fledge-iot.readthedocs.io/
 # FLEDGE_END
 
-""" HTTP North plugin"""
-""" OpcuaClient North plugin"""
+""" SNMP North plugin"""
+
 import asyncio
-import time
 import json
-import sys
-from datetime import datetime
 from asyncio.log import logger
-from __future__ import print_function
 import json
 import os
+from itertools import chain
 
 from fledge.common import logger
 from fledge.plugins.north.common.common import *
 
 __author__ = "Archer Jade"
-__copyright__ = "Copyright (c) 2020, RTE (https://www.rte-france.com)"
+__copyright__ = "Copyright (c) 2022, RTE (https://www.rte-france.com)"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
@@ -56,11 +53,20 @@ _DEFAULT_CONFIG = {
         'order': '1',
         'displayName': 'destManager'
     },
+    'snmpVersion': {
+        'description': 'SNMP Version. Either v2c or v3.',
+        "type": "enumeration",
+        "default": "v2c",
+        "options": ["v2c","v3"],
+        'order': '2',
+        'displayName': 'snmpVersion'
+    },
     "source": {
          "description": "Source of data to be sent on the stream. May be either readings or statistics.",
          "type": "enumeration",
          "default": "readings",
-         'order': '2',
+         "options": ["readings"],
+         'order': '3',
          'displayName': 'Source'
     },
     "applyFilter": {
@@ -112,7 +118,6 @@ def plugin_init(data):
     config = data
     return config
 
-#à modifier pour être sous forme SNMP
 async def plugin_send(handle, payload, stream_id):
     """ Used to send the readings block from north to the configured destination.
 
@@ -163,6 +168,25 @@ class SNMPnorth(object):
         f.close()
 
         return oid
+
+    def _get_OID(self, dict):
+        jsonData = dict["reading"]
+        names = []
+        oid = []
+        try:
+            for k,v in jsonData.items():
+                names.append(v.keys())
+            for n1 in names:
+                for n2 in list(n1):
+                    oid.append(self.get_OID(n2))
+        except:
+            names=list(jsonData.keys())
+            for n1 in names:
+                oid.append(self.get_OID(n1))
+                
+        oids=list(chain(*oid))
+
+        return oids
     
     def find_values(id, json_repr):
         results = []
@@ -194,7 +218,7 @@ class SNMPnorth(object):
                     last_object_id = p["id"]
                     read = dict()
                     read["value"] = p['reading'].value()
-                    read["oid"]=self.get_OID(p['reading'])
+                    read["oid"]=self._get_OID(p['reading'])
                     payload_block.append(read)
 
             num_sent = await self._send_payloads(payload_block)
@@ -215,3 +239,9 @@ class SNMPnorth(object):
         else: 
             num_count += len(payload_block)
         return num_count
+
+    async def _send(self, payload):
+        """ Send the payload, using provided manager """
+
+        #await client.send_message(message)
+        _LOGGER.info('Message successfully sent')
