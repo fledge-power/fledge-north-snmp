@@ -17,9 +17,8 @@ snmptrap -v <snmp_version> -e <engine_id> -u <security_username> -a <authenticat
 
 import asyncio
 import json
-from asyncio.log import logger
-import json
 import os
+
 from itertools import chain
 
 from fledge.common import logger
@@ -158,37 +157,59 @@ class SNMPnorth(object):
     
     def get_OID(self, reading):
         # Opening JSON file
-        f = open('./name_assos.json')
+        f = {
+            "cpuUsage_All": {
+                "prcntg_usr": "1.3.6.1.4.1.2021.11.50",
+                "prcntg_nice": "1.3.6.1.4.1.2021.11.51",
+                "prcntg_sys": "1.3.6.1.4.1.2021.11.52",
+                "prcntg_iowait": "1.3.6.1.4.1.2021.11.54",
+                "prcntg_irq": "1.3.6.1.4.1.2021.11.56",
+                "prcntg_soft": "1.3.6.1.4.1.2021.11.61",
+                "prcntg_steal": "1.3.6.1.4.1.2021.11.64",
+                "prcntg_guest": "1.3.6.1.4.1.2021.11.65",
+                "prcntg_gnice": "1.3.6.1.4.1.2021.11.66",
+                "prcntg_idle": "1.3.6.1.4.1.2021.11.53"
+            },
+            "hostName": "1.3.6.1.4.1.9.2.1.3",
+            "memInfo":{
+                "MemTotal_KB": "1.3.6.1.4.1.2021.4.5",
+                "MemFree_KB": "1.3.6.1.4.1.2021.4.11",
+                "MemAvailable_KB": "1.3.6.1.4.1.2021.4.6",
+                "Buffers_KB": "1.3.6.1.4.1.2021.4.14",
+                "Cached_KB": "1.3.6.1.4.1.2021.4.15",
+                "SwapFree_KB": "1.3.6.1.4.1.2021.4.4",
+                "SwapTotal_KB": "1.3.6.1.4.1.2021.4.3"
+            },
+            "pagingAndSwappingEvents":{
+                "swappedin": "1.3.6.1.4.1.2021.11.62",
+                "swappedout": "1.3.6.1.4.1.2021.11.63",
+                "pagein": "1.3.6.1.4.1.546.1.1.8.8.22",
+                "pageout":"1.3.6.1.4.1.546.1.1.8.8.23"
+            },
+            "uptime ":{
+                "system_seconds": "1.3.6.1.2.1.1.3.0"
+            },
+            "loadAverage":{
+                "overLast15mins": "1.3.6.1.4.1.2021.10.1.3.3",
+                "overLast1min": "1.3.6.1.4.1.2021.10.1.3.1",
+                "overLast5mins": "1.3.6.1.4.1.2021.10.1.3.2"
+            },
+            "processes":{
+                "running": "1.3.6.2.1.25.1.6",
+                "zombie": "1.3.6.1.4.1.546.1.1.7.8.34",
+                "sleep": "1.3.6.1.4.1.546.1.1.7.8.8"
+            }
+        }
 
         # Iterating through the json
         # list
-        oid = self.find_values(reading.keys(), f)
 
-        # Closing file
-        f.close()
-
+        _LOGGER.info('readings: ', reading)
+        oid = self.find_values(reading, f)
+        
         return oid
 
-    def _get_OID(self, dict):
-        jsonData = dict["reading"]
-        names = []
-        oid = []
-        try:
-            for k,v in jsonData.items():
-                names.append(v.keys())
-            for n1 in names:
-                for n2 in list(n1):
-                    oid.append(self.get_OID(n2))
-        except:
-            names=list(jsonData.keys())
-            for n1 in names:
-                oid.append(self.get_OID(n1))
-                
-        oids=list(chain(*oid))
-
-        return oids
-    
-    def find_values(id, json_repr):
+    def find_values(self, id, json_repr):
         results = []
 
         def _decode_dict(a_dict):
@@ -197,12 +218,35 @@ class SNMPnorth(object):
             except KeyError:
                 pass
             return a_dict
-
-        json.loads(json_repr.read(), object_hook=_decode_dict) # Return value ignored.
+        json_repr=json.dumps(json_repr)
+        json.loads(json_repr, object_hook=_decode_dict) # Return value ignored.
         return results
 
-
+    def _get_OID(self, dict):
+        jsonData = dict
+        names = []
+        _LOGGER.debug('AAAAAAAAAAAAAAAAAAAAAAAAA')
+        
+        try: #nested case
+            oid = []
+            foo = str(*jsonData.keys())
+            newdic=jsonData[foo]
+            for k,v in jsonData.items():
+                names.append(v.keys())
+            for n1 in names:
+                for n2 in list(n1):
+                    oid=(self.get_OID(n2))
+                    newdic[oid[0]]=newdic.pop(n2)
+            return newdic
+        except: #non nested case
+            names=list(jsonData.keys())
+            n1=names[0]
+            oid = self.get_OID(n1)
+            jsonData[oid[0]]=jsonData.pop(n1)
+            
+        return jsonData
     
+
     async def send_payloads(self, payloads):
         is_data_sent = False
         last_object_id = 0
@@ -217,8 +261,7 @@ class SNMPnorth(object):
                     #only add the readings from systeminfo plugin
                     last_object_id = p["id"]
                     read = dict()
-                    read["value"] = p['reading'].value()
-                    read["oid"]=self._get_OID(p['reading'])
+                    read["reading"] = self._get_OID(p['reading'])
                     payload_block.append(read)
 
             num_sent = await self._send_payloads(payload_block)
