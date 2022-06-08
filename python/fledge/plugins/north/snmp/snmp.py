@@ -22,15 +22,12 @@ import os
 from itertools import chain
 
 from fledge.common import logger
-from fledge.plugins.north.common.common import *
+from fledge.plugins.common import *
 
 __author__ = "Archer Jade"
 __copyright__ = "Copyright (c) 2022, RTE (https://www.rte-france.com)"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
-
-_LOGGER = logger.setup(__name__)
-
 
 SNMPnorth = None
 config = ""
@@ -85,8 +82,7 @@ _DEFAULT_CONFIG = {
     }
 }
 
-
-
+_LOGGER = logger.setup(__name__, level=logger.logging.INFO)
 
 def plugin_info():
     """ Used only once when call will be made to a plugin.
@@ -115,6 +111,7 @@ def plugin_init(data):
     global SNMPnorth, config
     SNMPnorth = SNMPnorth()
     config = data
+    _LOGGER.info('snmp plugin started.')
     return config
 
 async def plugin_send(handle, payload, stream_id):
@@ -144,6 +141,7 @@ def plugin_shutdown(handle):
          handle - Plugin handle which is returned by plugin_init
     Returns:
     """
+    _LOGGER.info('snmp plugin shut down.')
 
 
 class SNMPnorth(object):
@@ -154,7 +152,7 @@ class SNMPnorth(object):
         pass
     def send_trap(self,snmp_server, oid, value):
         os.system("snmptrap -v2c -c public {} '' {} {} {}".format(snmp_server, oid, type(value), value))
-    
+
     def get_OID(self, reading):
         # Opening JSON file
         f = {
@@ -206,7 +204,7 @@ class SNMPnorth(object):
 
         _LOGGER.info('readings: ', reading)
         oid = self.find_values(reading, f)
-        
+
         return oid
 
     def find_values(self, id, json_repr):
@@ -226,7 +224,7 @@ class SNMPnorth(object):
         jsonData = dict
         names = []
         _LOGGER.debug('AAAAAAAAAAAAAAAAAAAAAAAAA')
-        
+
         try: #nested case
             oid = []
             foo = str(*jsonData.keys())
@@ -243,9 +241,9 @@ class SNMPnorth(object):
             n1=names[0]
             oid = self.get_OID(n1)
             jsonData[oid[0]]=jsonData.pop(n1)
-            
+
         return jsonData
-    
+
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -271,7 +269,7 @@ class SNMPnorth(object):
             _LOGGER.exception("Data could not be sent, %s", str(ex))
 
         return is_data_sent, last_object_id, num_sent
-    
+
     async def _send_payloads(self, payload_block):
         """ send a list of block payloads"""
         num_count = 0
@@ -279,7 +277,7 @@ class SNMPnorth(object):
             self.send_trap(config["snmp_server"]["value"], payload_block["oid"], payload_block["value"] )
         except Exception as ex:
             _LOGGER.exception(f'Exception sending payloads: {ex}')
-        else: 
+        else:
             num_count += len(payload_block)
         return num_count
 
