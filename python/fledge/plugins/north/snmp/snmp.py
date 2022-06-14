@@ -1,11 +1,11 @@
 """
-Envoie un poll de façon périodique au plugin sud, envoie plusieurs:
-Récupère les valeurs et envoie un trap:
+Receives info from the south plugin systeminfo and
+sends them as traps to an SNMP manager using:
+for v2:
 snmptrap -v <snmp_version> -c <community> <destination_host> <uptime> <OID_or_MIB> <object> <value_type> <value>
 ex: snmptrap -v2c -c public 127.0.0.1:1163 12345 1.3.6.1.4.1.20408.4.1.1.2
-pour la v3: !pas encore fait
+for v3: !not done yet
 snmptrap -v <snmp_version> -e <engine_id> -u <security_username> -a <authentication_protocal> -A <authentication_protocal_pass_phrase> -x <privacy_protocol> -X <privacy_protocol_pass_phrase> -l authPriv <destination_host> <uptime> <OID_or_MIB> <object> <value_type> <value>
-
 """
 # -*- coding: utf-8 -*-
 
@@ -21,16 +21,15 @@ import os
 
 from itertools import chain
 
+from attr import s
+
 from fledge.common import logger
-from fledge.plugins.north.common.common import *
+from fledge.plugins.common import *
 
 __author__ = "Archer Jade"
 __copyright__ = "Copyright (c) 2022, RTE (https://www.rte-france.com)"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
-
-_LOGGER = logger.setup(__name__)
-
 
 SNMPnorth = None
 config = ""
@@ -85,12 +84,10 @@ _DEFAULT_CONFIG = {
     }
 }
 
-
-
+_LOGGER = logger.setup(__name__, level=logger.logging.INFO)
 
 def plugin_info():
     """ Used only once when call will be made to a plugin.
-
         Args:
         Returns:
             Information about the plugin including the configuration for the plugin
@@ -106,7 +103,6 @@ def plugin_info():
 
 def plugin_init(data):
     """ Used for initialization of a plugin.
-
     Args:
         data - Plugin configuration
     Returns:
@@ -115,11 +111,11 @@ def plugin_init(data):
     global SNMPnorth, config
     SNMPnorth = SNMPnorth()
     config = data
+    _LOGGER.info('snmp plugin started.')
     return config
 
 async def plugin_send(handle, payload, stream_id):
     """ Used to send the readings block from north to the configured destination.
-
     Args:
         handle - An object which is returned by plugin_init
         payload - A List of readings block
@@ -139,11 +135,11 @@ async def plugin_send(handle, payload, stream_id):
 
 def plugin_shutdown(handle):
     """ Used when plugin is no longer required and will be final call to shutdown the plugin. It should do any necessary cleanup if required.
-
     Args:
          handle - Plugin handle which is returned by plugin_init
     Returns:
     """
+    _LOGGER.info('snmp plugin shut down.')
 
 
 class SNMPnorth(object):
@@ -153,8 +149,13 @@ class SNMPnorth(object):
         #self.event_loop = asyncio.get_event_loop()
         pass
     def send_trap(self,snmp_server, oid, value):
-        os.system("snmptrap -v2c -c public {} '' {} {} {}".format(snmp_server, oid, type(value), value))
-    
+        
+        if type(value)==str:
+            t = "s"
+        else:
+            t="i"
+        os.system("snmptrap -v2c -c public {} '' {} {}.1.1.1.1.1 {} \"{}\"".format(snmp_server, oid, oid, t, value))
+
     def get_OID(self, reading):
         # Opening JSON file
         f = {
@@ -183,7 +184,7 @@ class SNMPnorth(object):
             "pagingAndSwappingEvents":{
                 "swappedin": "1.3.6.1.4.1.2021.11.62",
                 "swappedout": "1.3.6.1.4.1.2021.11.63",
-                "pagein": "1.3.6.1.4.1.546.1.1.8.8.22",
+                "pagedin": "1.3.6.1.4.1.546.1.1.8.8.22",
                 "pageout":"1.3.6.1.4.1.546.1.1.8.8.23"
             },
             "uptime ":{
@@ -206,7 +207,7 @@ class SNMPnorth(object):
 
         _LOGGER.info('readings: ', reading)
         oid = self.find_values(reading, f)
-        
+
         return oid
 
     def find_values(self, id, json_repr):
@@ -225,8 +226,7 @@ class SNMPnorth(object):
     def _get_OID(self, dict):
         jsonData = dict
         names = []
-        _LOGGER.debug('AAAAAAAAAAAAAAAAAAAAAAAAA')
-        
+
         try: #nested case
             oid = []
             foo = str(*jsonData.keys())
@@ -239,13 +239,21 @@ class SNMPnorth(object):
                     newdic[oid[0]]=newdic.pop(n2)
             return newdic
         except: #non nested case
-            names=list(jsonData.keys())
-            n1=names[0]
-            oid = self.get_OID(n1)
-            jsonData[oid[0]]=jsonData.pop(n1)
-            
+            if jsonData == {}:
+                _LOGGER.info('empty!')
+            else:
+                names=list(jsonData.keys())
+                print(names)
+                for n1 in names:
+                    n2=n1
+                    oid = self.get_OID(n2)
+                    try:
+                        jsonData[oid[0]]=jsonData.pop(n2)
+                    except:
+                        pass
+        #_LOGGER.info(jsonData)
         return jsonData
-    
+
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -263,7 +271,6 @@ class SNMPnorth(object):
                     read = dict()
                     read["reading"] = self._get_OID(p['reading'])
                     payload_block.append(read)
-
             num_sent = await self._send_payloads(payload_block)
             _LOGGER.info('payloads sent: {num_sent}')
             is_data_sent = True
@@ -271,15 +278,29 @@ class SNMPnorth(object):
             _LOGGER.exception("Data could not be sent, %s", str(ex))
 
         return is_data_sent, last_object_id, num_sent
-    
+
     async def _send_payloads(self, payload_block):
         """ send a list of block payloads"""
         num_count = 0
-        try:
-            self.send_trap(config["snmp_server"]["value"], payload_block["oid"], payload_block["value"] )
-        except Exception as ex:
-            _LOGGER.exception(f'Exception sending payloads: {ex}')
-        else: 
+        val = {'reading': {}}
+        l=payload_block
+        l = [i for i in l if i != val]
+        print(l)
+        for n in l:
+            tmp_payload=n["reading"]
+            names=list(tmp_payload.keys())
+            for n1 in names:
+                oid=str(n1)
+                value=tmp_payload.get(n1)
+                try:
+                    value=int(tmp_payload.get(n1))
+                except:
+                    value=str(tmp_payload.get(n1))
+                try:
+                    self.send_trap(config["destination"]["default"], oid, value)
+                except Exception as ex:
+                    _LOGGER.exception(f'Exception sending payloads: {ex}')
+        else:
             num_count += len(payload_block)
         return num_count
 
