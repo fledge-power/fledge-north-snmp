@@ -49,7 +49,7 @@ _DEFAULT_CONFIG = {
         'type': 'string',
         'default': 'localhost:1162',
         'order': '1',
-        'displayName': 'destManager'
+        'displayName': 'Manager address:port'
     },
     'snmpVersion': {
         'description': 'SNMP Version. Either v2c or v3.',
@@ -57,28 +57,70 @@ _DEFAULT_CONFIG = {
         "default": "v2c",
         "options": ["v2c","v3"],
         'order': '2',
-        'displayName': 'snmpVersion'
+        'displayName': 'SNMP Version'
+    },
+    'EngID': {
+        'description': 'Engine ID if using SNMPv3.',
+        "type": "string",
+        "default": "",
+        'order': '3',
+        'displayName': 'Engine ID (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
+    },
+    'Security': {
+        'description': 'Security level if using SNMPv3.',
+        "type": "enumeration",
+        "default": "noAuthNoPriv",
+        "options": ["noAuthNoPriv","authNoPriv","authPriv"],
+        'order': '4',
+        'displayName': 'Security level (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
+    },
+    'User': {
+        'description': 'User name if using SNMPv3.',
+        "type": "string",
+        "default": "snmp3user",
+        'order': '4',
+        'displayName': 'User name (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
+    },
+    'AuthType': {
+        'description': 'Authentification type if using SNMPv3.',
+        "type": "enumeration",
+        "default": "MD5",
+        "options": ["MD5","SHA"],
+        'order': '6',
+        'displayName': 'Authentification type (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
+    },
+    'pwd': {
+        'description': 'Password if using SNMPv3.',
+        "type": "string",
+        "default": "default",
+        'order': '5',
+        'displayName': 'Password (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
     },
     "source": {
          "description": "Source of data to be sent on the stream. May be either readings or statistics.",
          "type": "enumeration",
          "default": "readings",
          "options": ["readings"],
-         'order': '3',
+         'order': '7',
          'displayName': 'Source'
     },
     "applyFilter": {
         "description": "Should filter be applied before processing data",
         "type": "boolean",
         "default": "false",
-        'order': '4',
+        'order': '8',
         'displayName': 'Apply Filter'
     },
     "filterRule": {
         "description": "JQ formatted filter to apply (only applicable if applyFilter is True)",
         "type": "string",
         "default": ".[]",
-        'order': '5',
+        'order': '9',
         'displayName': 'Filter Rule',
         "validity": "applyFilter == \"true\""
     }
@@ -154,10 +196,17 @@ class SNMPnorth(object):
             t = "s"
         else:
             t="i"
-        os.system("snmptrap -v2c -c public {} '' {} {}.1.1.1.1.1 {} \"{}\"".format(snmp_server, oid, oid, t, value))
+        if config["snmpVersion"]["value"]== "v2c":
+            #OID .1.3.6.1.6.3.1.1.4.1: The authoritative identification of the notification
+            #currently being sent.  This variable occurs as
+            #the second varbind in every SNMPv2-Trap-PDU and
+            #InformRequest-PDU.
+            os.system("snmptrap -v2c -c public {} '' {} 1.3.6.1.6.3.1.1.4.1 {} \"{}\"".format(snmp_server, oid, t, value))
+        else: #SNMPv3
+            os.system("snmptrap -v 3 -e {} -u {} -a {} -A {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["Security"]["value"],config["Source"]["value"],oid, oid, t, value))
 
     def get_OID(self, reading):
-        # Opening JSON file
+        # Dictionary pairing oid with systeminfo names
         f = {
             "cpuUsage_All": {
                 "prcntg_usr": "1.3.6.1.4.1.2021.11.50",
@@ -297,7 +346,7 @@ class SNMPnorth(object):
                 except:
                     value=str(tmp_payload.get(n1))
                 try:
-                    self.send_trap(config["destination"]["default"], oid, value)
+                    self.send_trap(config["destination"]["value"], oid, value)
                 except Exception as ex:
                     _LOGGER.exception(f'Exception sending payloads: {ex}')
         else:
