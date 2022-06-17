@@ -4,7 +4,7 @@ sends them as traps to an SNMP manager using:
 for v2:
 snmptrap -v <snmp_version> -c <community> <destination_host> <uptime> <OID_or_MIB> <object> <value_type> <value>
 ex: snmptrap -v2c -c public 127.0.0.1:1163 12345 1.3.6.1.4.1.20408.4.1.1.2
-for v3: !not done yet
+for v3:
 snmptrap -v <snmp_version> -e <engine_id> -u <security_username> -a <authentication_protocal> -A <authentication_protocal_pass_phrase> -x <privacy_protocol> -X <privacy_protocol_pass_phrase> -l authPriv <destination_host> <uptime> <OID_or_MIB> <object> <value_type> <value>
 """
 # -*- coding: utf-8 -*-
@@ -87,8 +87,8 @@ _DEFAULT_CONFIG = {
     'AuthType': {
         'description': 'Authentification type if using SNMPv3.',
         "type": "enumeration",
-        "default": "MD5",
-        "options": ["MD5","SHA"],
+        "default": "SHA",
+        "options": ["SHA","MD5"],
         'order': '6',
         'displayName': 'Authentification type (SNMPv3)',
         "validity": "snmpVersion == \"v3\""
@@ -99,6 +99,23 @@ _DEFAULT_CONFIG = {
         "default": "default",
         'order': '5',
         'displayName': 'Password (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
+    },
+    'EncType': {
+        'description': 'Encryption type if using SNMPv3.',
+        "type": "enumeration",
+        "default": "AES",
+        "options": ["AES","DES"],
+        'order': '6',
+        'displayName': 'Encryption type (SNMPv3)',
+        "validity": "snmpVersion == \"v3\""
+    },
+    'EncPwd': {
+        'description': 'Password for encryption if using SNMPv3.',
+        "type": "string",
+        "default": "default",
+        'order': '6',
+        'displayName': 'PrivPassword (SNMPv3)',
         "validity": "snmpVersion == \"v3\""
     },
     "source": {
@@ -203,7 +220,14 @@ class SNMPnorth(object):
             #InformRequest-PDU.
             os.system("snmptrap -v2c -c public {} '' {} 1.3.6.1.6.3.1.1.4.1 {} \"{}\"".format(snmp_server, oid, t, value))
         else: #SNMPv3
-            os.system("snmptrap -v 3 -e {} -u {} -a {} -A {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["Security"]["value"],config["Source"]["value"],oid, oid, t, value))
+            if config["Security"]["value"] == "noAuthNoPriv":
+                os.system("snmptrap -v 3 -e {} -u {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
+            elif config["Security"]["value"] == "AuthNoPriv":
+                os.system("snmptrap -v 3 -e {} -u {} -a {} -A {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
+            else:
+                s = ("snmptrap -v 3 -e {} -u {} -a {} -A {} -x {} -X {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["EncType"]["value"],config["EncPwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
+                os.system("snmptrap -v 3 -e {} -u {} -a {} -A {} -x {} -X {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["EncType"]["value"],config["EncPwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
+                _LOGGER.info(s)
 
     def get_OID(self, reading):
         # Dictionary pairing oid with systeminfo names
