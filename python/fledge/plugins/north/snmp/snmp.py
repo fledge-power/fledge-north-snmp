@@ -207,6 +207,8 @@ class SNMPnorth(object):
     def __init__(self):
         #self.event_loop = asyncio.get_event_loop()
         pass
+    
+    #Checks the SNMP version and proceeds to send a trap in the version format.
     def send_trap(self,snmp_server, oid, value):
         
         if type(value)==str:
@@ -214,9 +216,10 @@ class SNMPnorth(object):
         else:
             t="i"
         if config["snmpVersion"]["value"]== "v2c":
-            #OID .1.3.6.1.6.3.1.1.4.1: The authoritative identification of the notification
-            #currently being sent.  This variable occurs as
-            #the second varbind in every SNMPv2-Trap-PDU and
+            #OID .1.3.6.1.6.3.1.1.4.1: The authoritative 
+            # identification of the notification currently
+            # being sent.  This variable occurs as the
+            #second varbind in every SNMPv2-Trap-PDU and
             #InformRequest-PDU.
             os.system("snmptrap -v2c -c public {} '' {} 1.3.6.1.6.3.1.1.4.1 {} \"{}\"".format(snmp_server, oid, t, value))
         else: #SNMPv3
@@ -225,9 +228,41 @@ class SNMPnorth(object):
             elif config["Security"]["value"] == "AuthNoPriv":
                 os.system("snmptrap -v 3 -e {} -u {} -a {} -A {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
             else:
-                s = ("snmptrap -v 3 -e {} -u {} -a {} -A {} -x {} -X {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["EncType"]["value"],config["EncPwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
                 os.system("snmptrap -v 3 -e {} -u {} -a {} -A {} -x {} -X {} -l {} {} '' .{} .{}.1.1.1.1.1 {} {}".format(config["EngID"]["value"],config["User"]["value"],config["AuthType"]["value"], config["pwd"]["value"],config["EncType"]["value"],config["EncPwd"]["value"],config["Security"]["value"],snmp_server,oid, oid, t, value))
-                _LOGGER.info(s)
+
+    #Transforms the reading into a new json dictionary with
+    #OIDs instead of the names the sysinfo plugin provides.
+    #The new reading is smaller in size because we are not
+    #interested in all the data sysinfo gives us.
+    def _get_OID(self, dict):
+        jsonData = dict
+        names = []
+
+        try: #nested case
+            oid = []
+            foo = str(*jsonData.keys())
+            newdic=jsonData[foo]
+            for k,v in jsonData.items():
+                names.append(v.keys())
+            for n1 in names:
+                for n2 in list(n1):
+                    oid=(self.get_OID(n2))
+                    newdic[oid[0]]=newdic.pop(n2)
+            return newdic
+        except: #non nested case
+            if jsonData == {}:
+                _LOGGER.info('empty!')
+            else:
+                names=list(jsonData.keys())
+                print(names)
+                for n1 in names:
+                    n2=n1
+                    oid = self.get_OID(n2)
+                    try:
+                        jsonData[oid[0]]=jsonData.pop(n2)
+                    except:
+                        pass
+        return jsonData
 
     def get_OID(self, reading):
         # Dictionary pairing oid with systeminfo names
@@ -276,13 +311,12 @@ class SNMPnorth(object):
         }
 
         # Iterating through the json
-        # list
-
-        _LOGGER.info('readings: ', reading)
         oid = self.find_values(reading, f)
 
         return oid
 
+    #Browses a dict (here, the readings) and gets the values associated with all the oids available in our dict
+    #see: https://stackoverflow.com/questions/14048948/how-to-find-a-particular-json-value-by-key
     def find_values(self, id, json_repr):
         results = []
 
@@ -295,38 +329,6 @@ class SNMPnorth(object):
         json_repr=json.dumps(json_repr)
         json.loads(json_repr, object_hook=_decode_dict) # Return value ignored.
         return results
-
-    def _get_OID(self, dict):
-        jsonData = dict
-        names = []
-
-        try: #nested case
-            oid = []
-            foo = str(*jsonData.keys())
-            newdic=jsonData[foo]
-            for k,v in jsonData.items():
-                names.append(v.keys())
-            for n1 in names:
-                for n2 in list(n1):
-                    oid=(self.get_OID(n2))
-                    newdic[oid[0]]=newdic.pop(n2)
-            return newdic
-        except: #non nested case
-            if jsonData == {}:
-                _LOGGER.info('empty!')
-            else:
-                names=list(jsonData.keys())
-                print(names)
-                for n1 in names:
-                    n2=n1
-                    oid = self.get_OID(n2)
-                    try:
-                        jsonData[oid[0]]=jsonData.pop(n2)
-                    except:
-                        pass
-        #_LOGGER.info(jsonData)
-        return jsonData
-
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -353,18 +355,19 @@ class SNMPnorth(object):
         return is_data_sent, last_object_id, num_sent
 
     async def _send_payloads(self, payload_block):
-        """ send a list of block payloads"""
+        """ sends a list of block payloads"""
         num_count = 0
         val = {'reading': {}}
         l=payload_block
         l = [i for i in l if i != val]
-        print(l)
         for n in l:
             tmp_payload=n["reading"]
             names=list(tmp_payload.keys())
+            #n1: the value associated with the oid
             for n1 in names:
                 oid=str(n1)
                 value=tmp_payload.get(n1)
+                #makes n1's value into an int or str instead of dict
                 try:
                     value=int(tmp_payload.get(n1))
                 except:
@@ -376,9 +379,3 @@ class SNMPnorth(object):
         else:
             num_count += len(payload_block)
         return num_count
-
-    async def _send(self, payload):
-        """ Send the payload, using provided manager """
-
-        #await client.send_message(message)
-        _LOGGER.info('Message successfully sent')
